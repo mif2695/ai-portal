@@ -2,32 +2,27 @@ name: Deploy to reg.ru FTP
 
 on:
   push:
-    branches: [ main ]  # Деплой при push в ветку main
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     
     steps:
-    # Шаг 1: Получить код из репозитория
     - name: Checkout repository
       uses: actions/checkout@v3
     
-    # Шаг 2: Установить Node.js
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '18'
     
-    # Шаг 3: Установить зависимости
     - name: Install dependencies
       run: npm install
     
-    # Шаг 4: Собрать проект
     - name: Build project
       run: npm run build
     
-    # Шаг 5: Загрузить на FTP
     - name: Deploy to FTP
       uses: SamKirkland/FTP-Deploy-Action@4.3.4
       with:
@@ -36,95 +31,3 @@ jobs:
         password: ${{ secrets.FTP_PASSWORD }}
         local-dir: ./dist/
         server-dir: /public_html/
-```
-
----
-
-## **Шаг 2: Добавьте секреты в GitHub**
-
-1. Откройте ваш репозиторий на GitHub
-2. Перейдите: **Settings** → **Secrets and variables** → **Actions**
-3. Нажмите **"New repository secret"**
-4. Добавьте **три секрета**:
-
-### Секрет 1: `FTP_SERVER`
-```
-Название: FTP_SERVER
-Значение: ftp.ваш-домен.ru
-```
-(Замените на реальный адрес из reg.ru)
-
-### Секрет 2: `FTP_USERNAME`
-```
-Название: FTP_USERNAME
-Значение: ваш_ftp_логин
-```
-
-### Секрет 3: `FTP_PASSWORD`
-```
-Название: FTP_PASSWORD
-Значение: ваш_ftp_пароль
-```
-
----
-
-## **Шаг 3: Загрузите файл на GitHub**
-
-### Через VS Code:
-
-1. Создайте папку `.github/workflows/`
-2. Создайте файл `deploy.yml` с кодом выше
-3. Сделайте коммит:
-```
-   git add .
-   git commit -m "Add GitHub Actions deploy"
-   git push
-```
-
-### Или через веб-интерфейс GitHub:
-
-1. Репозиторий → **Add file** → **Create new file**
-2. Имя файла: `.github/workflows/deploy.yml`
-3. Вставьте код
-4. **Commit changes**
-
----
-
-## **Шаг 4: Проверьте деплой**
-
-После Push:
-1. Перейдите на GitHub → вкладка **Actions**
-2. Увидите запущенный workflow "Deploy to reg.ru FTP"
-3. Кликните на него, чтобы увидеть прогресс
-4. Если всё зелёное ✅ - файлы загружены на FTP!
-
----
-
-## 🎉 Как это работает:
-```
-1. Вы делаете изменения в коде
-   ↓
-2. git push в GitHub
-   ↓
-3. GitHub Actions запускается автоматически
-   ↓
-4. Устанавливает зависимости
-   ↓
-5. Собирает проект (npm run build)
-   ↓
-6. Загружает dist/ на FTP reg.ru
-   ↓
-7. Ваш сайт обновлён! 🚀
-```
-
----
-
-## 📊 Пример workflow в действии:
-
-После Push вы увидите в Actions:
-```
-✅ Checkout repository
-✅ Setup Node.js
-✅ Install dependencies
-✅ Build project
-✅ Deploy to FTP
