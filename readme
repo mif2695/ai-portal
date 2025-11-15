@@ -37,7 +37,7 @@ npm install
 
 # Запускаем dev-сервер
 npm run dev
-
+  
 # Открываем http://localhost:5173
 ```
 
