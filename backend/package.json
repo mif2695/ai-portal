@@ -1,0 +1,38 @@
+{
+  "name": "ai-portal",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "private": true,
+  "type": "module",
+  "packages": {},
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "vite": "^7.2.2"
+  },
+  "scripts": {
+    "build": "vite build",
+    "deploy": "npm run build && echo 'Ready to deploy dist/ folder'",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcryptjs": "^3.0.3",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.553.0",
+    "mongoose": "^8.19.4",
+    "mysql2": "^3.15.3",
+    "node-fetch": "^3.3.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

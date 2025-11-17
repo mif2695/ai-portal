@@ -1,0 +1,38 @@
+# Секреты и переменные окружения
+.env
+.env.*
+*.env
+
+# Зависимости Node.js
+node_modules/
+*/node_modules/
+
+# Сборки и артефакты
+dist/
+*/dist/
+build/
+*/build/
+*.tsbuildinfo
+
+# Логи
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Операционные системы
+.DS_Store
+Thumbs.db
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Временные файлы
+*.tmp
+.cache/
+.parcel-cache/
