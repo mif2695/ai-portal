@@ -143,8 +143,121 @@ const PRIORITIES = [
   { id: 'эффективность', label: 'Эффективность инфраструктуры' },
   { id: 'ускорение', label: 'Ускорение вычислений' }
 ];
+// Нормализация региона из ответа Perplexity к нашим значениям
+const normalizeRegion = (rawRegion) => {
+  if (!rawRegion) return 'Глобальный';
+  const value = String(rawRegion).toLowerCase();
+
+  if (value.includes('us') || value.includes('united states') || value.includes('america')) {
+    return 'США';
+  }
+  if (value.includes('eu') || value.includes('europe')) {
+    return 'Европа';
+  }
+  if (value.includes('asia') || value.includes('uae') || value.includes('dubai') || value.includes('singapore') || value.includes('china')) {
+    return 'Азия';
+  }
+  if (value.includes('russia') || value.includes('росс')) {
+    return 'Россия';
+  }
+  if (value.includes('china')) {
+    return 'Китай';
+  }
+
+  return 'Глобальный';
+};
+
+// Нормализация приоритета
+const normalizePriority = (rawPriority) => {
+  if (!rawPriority) return 'эффективность';
+  const value = String(rawPriority).toLowerCase();
+
+  if (value.includes('замещ') || value.includes('substitut')) {
+    return 'замещение';
+  }
+  if (value.includes('ускор') || value.includes('accel')) {
+    return 'ускорение';
+  }
+  if (value.includes('эффект') || value.includes('efficien')) {
+    return 'эффективность';
+  }
+
+  return 'эффективность';
+};
+
+// Автодобавление тегов по тексту, если Perplexity не прислал
+const inferTags = (tags, title = '', description = '') => {
+  if (Array.isArray(tags) && tags.length > 0) return tags;
+
+  const text = `${title} ${description}`.toLowerCase();
+  const result = new Set();
+
+  if (text.includes('gpu') || text.includes('nvidia') || text.includes('h100') || text.includes('b300') || text.includes('b200')) {
+    result.add('GPU');
+  }
+  if (text.includes('cpu') || text.includes('x86') || text.includes('arm')) {
+    result.add('CPU');
+  }
+  if (text.includes('cooling') || text.includes('liquid') || text.includes('охлаж')) {
+    result.add('Охлаждение');
+  }
+  if (text.includes('interconnect') || text.includes('infiniband') || text.includes('nvlink')) {
+    result.add('Интерконнект');
+  }
+  if (text.includes('data center') || text.includes('data-centre') || text.includes('дата-центр') || text.includes('datacenter')) {
+    result.add('Дата-центры');
+  }
+  if (text.includes('energy') || text.includes('мегават') || text.includes('mw') || text.includes('гвт') || text.includes('power')) {
+    result.add('Энергетика');
+  }
+  if (text.includes('memory') || text.includes('hbm') || text.includes('dram') || text.includes('память')) {
+    result.add('Память');
+  }
+  if (text.includes('storage') || text.includes('nvme') || text.includes('ssd') || text.includes('хранилищ')) {
+    result.add('Хранилище');
+  }
+
+  if (result.size === 0) {
+    result.add('Дата-центры');
+  }
+
+  return Array.from(result);
+};
+
+// Преобразование content от Perplexity к строке
+const extractContentText = (rawContent) => {
+  if (!rawContent) return '';
+
+  // Вариант 1: строка
+  if (typeof rawContent === 'string') {
+    return rawContent;
+  }
+
+  // Вариант 2: массив блоков (часто так делают новые API)
+  if (Array.isArray(rawContent)) {
+    return rawContent
+      .map((block) => {
+        if (typeof block === 'string') return block;
+        if (block && typeof block.text === 'string') return block.text;
+        if (block && typeof block.content === 'string') return block.content;
+        return '';
+      })
+      .join('\n')
+      .trim();
+  }
+
+  // Вариант 3: объект с text/content
+  if (typeof rawContent === 'object') {
+    if (typeof rawContent.text === 'string') return rawContent.text;
+    if (typeof rawContent.content === 'string') return rawContent.content;
+  }
+
+  console.warn('⚠️ Неизвестный формат content от Perplexity:', rawContent);
+  return '';
+};
 
 export default function AINewsDashboard() {
+  const [lastSearchInfo, setLastSearchInfo] = useState(null);
   const [news, setNews] = useState([]);
   const [selectedTags, setSelectedTags] = useState([]);
   const [selectedRegions, setSelectedRegions] = useState([]);
@@ -316,17 +429,19 @@ export default function AINewsDashboard() {
   };
 
   // Поиск новостей через Perplexity
-  const searchNews = async () => {
-    if (!settings.perplexityApiKey) {
-      alert('Сначала добавьте Perplexity API ключ в настройках');
-      setShowSettings(true);
-      return;
-    }
+  // Поиск новостей через Perplexity
+const searchNews = async () => {
+  if (!settings.perplexityApiKey) {
+    alert('Сначала добавьте Perplexity API ключ в настройках');
+    setShowSettings(true);
+    return;
+  }
 
-    setIsSearching(true);
-    setSearchError(null);
+  setIsSearching(true);
+  setSearchError(null);
+  setLastSearchInfo(null);
 
-    const prompt = `Найди 5 последних важных новостей об AI-инфраструктуре за последние 7 дней.
+  const prompt = `Найди 5 последних важных новостей об AI-инфраструктуре за последние 7 дней.
 
 Категории для поиска:
 - GPU и AI-ускорители (Nvidia H100/H200/B200, AMD MI300, Intel Gaudi)
@@ -351,69 +466,164 @@ export default function AINewsDashboard() {
 
 ВАЖНО: Верни ТОЛЬКО JSON массив, без markdown и комментариев.`;
 
+  try {
+    console.log('🔍 Начинаю поиск через Perplexity API...');
+
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.perplexityApiKey}`
+      },
+      body: JSON.stringify({
+        model: 'sonar-pro',
+        messages: [
+          {
+            role: 'system',
+            content: 'Ты - эксперт по AI-инфраструктуре. Возвращай только валидный JSON без markdown.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.2,
+        top_p: 0.9,
+        search_recency_filter: 'week',
+        return_images: false,
+        return_related_questions: false,
+        search_domain_filter: [
+          'datacenterdynamics.com',
+          'hpcwire.com',
+          'tomshardware.com',
+          'anandtech.com'
+        ],
+        max_tokens: 4000
+      })
+    });
+
+    console.log('📡 Получен ответ от API, статус:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Ошибка API:', errorData);
+      throw new Error(`Ошибка API: ${response.status} - ${errorData.error?.message || 'Неизвестная ошибка'}`);
+    }
+
+    const data = await response.json();
+    console.log('📦 Данные получены от Perplexity:', data);
+
+    const rawContent = data?.choices?.[0]?.message?.content;
+    console.log('📝 Raw content от Perplexity:', rawContent);
+
+    const content = extractContentText(rawContent);
+
+    if (!content) {
+      throw new Error('Пустой ответ от Perplexity API (content отсутствует)');
+    }
+
+    console.log('📝 Текст для парсинга:', content);
+
+    // Убираем возможные блоки ```json ... ```
+    let cleanContent = content
+      .replace(/```json[\s\n]*/gi, '')
+      .replace(/```[\s\n]*/g, '')
+      .trim();
+
+    // Пытаемся найти JSON массив
+    const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.error('❌ JSON массив не найден в ответе Perplexity:', cleanContent);
+      throw new Error('JSON массив не найден в ответе Perplexity');
+    }
+
+    let newsData;
     try {
-      const response = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.perplexityApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'llama-3.1-sonar-large-128k-online',
-          messages: [
-            {
-              role: 'system',
-              content: 'Ты - эксперт по AI-инфраструктуре. Возвращай только валидный JSON.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.2,
-          max_tokens: 4000
-        })
-      });
+      newsData = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.error('❌ Ошибка парсинга JSON:', e);
+      console.error('Исходный JSON-текст:', jsonMatch[0]);
+      throw new Error('Не удалось распарсить JSON от Perplexity');
+    }
 
-      if (!response.ok) {
-        throw new Error(`Ошибка API: ${response.status}`);
+    console.log('✅ JSON успешно распарсен:', newsData);
+
+    if (!Array.isArray(newsData) || newsData.length === 0) {
+      throw new Error('Perplexity вернул пустой список новостей');
+    }
+
+    // Валидация + нормализация + дедупликация
+    const existingSources = new Set(
+      news
+        .filter((n) => typeof n.source === 'string' && n.source)
+        .map((n) => n.source.trim())
+    );
+
+    const validNews = [];
+    const skipped = [];
+
+    newsData.forEach((item) => {
+      const base = {
+        title: item?.title?.toString().trim(),
+        description: item?.description?.toString().trim(),
+        importance: (item?.importance || 'Важная новость для AI-инфраструктуры').toString().trim(),
+        source: item?.source?.toString().trim(),
+      };
+
+      const isValid = base.title && base.description && base.source;
+
+      if (!isValid) {
+        console.warn('⚠️ Пропущена невалидная новость (нет title/description/source):', item);
+        skipped.push({ reason: 'invalid', item });
+        return;
       }
 
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      
-      // Парсим JSON из ответа
-      let newsData;
-      try {
-        // Убираем markdown если есть
-        const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) throw new Error('JSON не найден');
-        newsData = JSON.parse(jsonMatch[0]);
-      } catch (e) {
-        throw new Error('Не удалось распарсить ответ от Perplexity');
+      if (existingSources.has(base.source)) {
+        console.warn('⚠️ Пропущен дубликат по source:', base.source);
+        skipped.push({ reason: 'duplicate', item });
+        return;
       }
 
-      // Добавляем новости
-      const newItems = newsData.map((item, index) => ({
-        ...item,
-        id: Date.now() + index,
+      const normalizedRegion = normalizeRegion(item.region);
+      const normalizedPriority = normalizePriority(item.priority);
+      const normalizedTags = inferTags(item.tags, base.title, base.description);
+
+      validNews.push({
+        ...base,
+        tags: normalizedTags,
+        region: normalizedRegion,
+        priority: normalizedPriority,
+        id: Date.now() + validNews.length,
         date: new Date().toISOString().split('T')[0],
         starred: false
-      }));
+      });
+    });
 
-      const updatedNews = [...newItems, ...news];
-      setNews(updatedNews);
-      localStorage.setItem('aiNewsPortal', JSON.stringify(updatedNews));
-
-      alert(`Успешно добавлено ${newItems.length} новостей!`);
-    } catch (error) {
-      console.error('Ошибка поиска:', error);
-      setSearchError(error.message);
-    } finally {
-      setIsSearching(false);
+    if (validNews.length === 0) {
+      throw new Error('Не найдено валидных новых новостей (всё либо дубликаты, либо без обязательных полей)');
     }
-  };
+
+    console.log(`✅ Обработано новостей: добавлено ${validNews.length}, пропущено ${skipped.length}`);
+
+    const updatedNews = [...validNews, ...news];
+    setNews(updatedNews);
+    localStorage.setItem('aiNewsPortal', JSON.stringify(updatedNews));
+
+    setLastSearchInfo({
+      time: new Date().toISOString(),
+      added: validNews.length,
+      skipped: skipped.length
+    });
+
+    alert(`✅ Успешно добавлено ${validNews.length} новостей! (пропущено: ${skipped.length})`);
+  } catch (error) {
+    console.error('❌ Ошибка поиска:', error);
+    setSearchError(error.message);
+    alert(`❌ Ошибка: ${error.message}`);
+  } finally {
+    setIsSearching(false);
+  }
+};
 
   // Отправка в Telegram
   const sendToTelegram = async () => {
@@ -516,7 +726,7 @@ export default function AINewsDashboard() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Настройки</h3>
+              <h3 className="text-lg font-bold">Настройки API</h3>
               <button
                 onClick={() => setShowSettings(false)}
                 className="text-gray-500 hover:text-gray-700"
@@ -536,12 +746,15 @@ export default function AINewsDashboard() {
                   onChange={(e) => setSettings({...settings, perplexityApiKey: e.target.value})}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Получить на: perplexity.ai/settings/api
+                  Получить на: <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">perplexity.ai/settings/api</a>
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  💰 $5 бесплатно при регистрации (хватит на ~1000 поисков)
                 </p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-1">Telegram Bot Token</label>
+                <label className="block text-sm font-medium mb-1">Telegram Bot Token (опционально)</label>
                 <input
                   type="password"
                   placeholder="123456:ABC-DEF..."
@@ -552,7 +765,7 @@ export default function AINewsDashboard() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-1">Telegram Chat ID</label>
+                <label className="block text-sm font-medium mb-1">Telegram Chat ID (опционально)</label>
                 <input
                   type="text"
                   placeholder="-1001234567890"
@@ -740,10 +953,10 @@ export default function AINewsDashboard() {
                   <button
                     onClick={searchNews}
                     disabled={isSearching}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Search className="w-4 h-4" />
-                    {isSearching ? 'Поиск...' : 'Найти новости'}
+                    <Search className={`w-4 h-4 ${isSearching ? 'animate-spin' : ''}`} />
+                    {isSearching ? 'Поиск новостей...' : '🔍 Найти новости'}
                   </button>
                   
                   <button
@@ -773,10 +986,19 @@ export default function AINewsDashboard() {
               </div>
               
               {searchError && (
-                <Alert className="mt-4">
-                  <AlertDescription>
+                <Alert className="mt-4 border-red-200 bg-red-50">
+                  <AlertDescription className="text-red-700">
                     <AlertCircle className="w-4 h-4 inline mr-2" />
                     Ошибка поиска: {searchError}
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {isSearching && (
+                <Alert className="mt-4 border-blue-200 bg-blue-50">
+                  <AlertDescription className="text-blue-700">
+                    <RefreshCw className="w-4 h-4 inline mr-2 animate-spin" />
+                    Ищу свежие новости через Perplexity API...
                   </AlertDescription>
                 </Alert>
               )}
